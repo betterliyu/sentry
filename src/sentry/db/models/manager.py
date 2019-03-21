@@ -340,6 +340,8 @@ class SnubaEventManager(BaseManager):
 
             id_or_event_id = event.event_id
 
+            project_id = event.project_id
+
         return SnubaEvent.get_event(project_id, id_or_event_id)
 
 
@@ -381,7 +383,6 @@ class EventManager(BaseManager):
         # TODO (alexh) instrument this to report any times we are still trying
         # to get events by id.
         # TODO (alexh) deprecate lookup by id so we can move to snuba.
-
         event = None
         if id_or_event_id.isdigit() and int(id_or_event_id) <= BoundedBigIntegerField.MAX_VALUE:
             # If its a numeric string, check if it's an event Primary Key first

@@ -6,6 +6,7 @@ from datetime import timedelta
 from django.utils import timezone
 from django.core.urlresolvers import reverse
 
+from sentry import options
 from sentry.models import UserReport, Group
 from sentry.testutils import APITestCase, SnubaTestCase
 
@@ -13,6 +14,7 @@ from sentry.testutils import APITestCase, SnubaTestCase
 class EventDetailsTest(APITestCase, SnubaTestCase):
     def setUp(self):
         super(EventDetailsTest, self).setUp()
+        options.set('snuba.events-queries.enabled', False)
         self.project = self.create_project()
         self.min_ago = (timezone.now() - timedelta(minutes=1)).isoformat()[:19]
         self.two_min_ago = (timezone.now() - timedelta(minutes=2)).isoformat()[:19]
@@ -330,3 +332,77 @@ class EventDetailsTest(APITestCase, SnubaTestCase):
         assert response.status_code == 200, response.content
         assert response.data['id'] == six.text_type(event.id)
         assert response.data['previousEventID'] == six.text_type(before.event_id)
+
+    def test_snuba(self):
+        options.set('snuba.events-queries.enabled', True)
+
+        self.login_as(user=self.user)
+
+        prev_event = self.store_event(
+            data={
+                'event_id': 'a' * 32,
+                'timestamp': self.three_min_ago,
+                'fingerprint': ['group-1'],
+            },
+            project_id=self.project.id
+        )
+        cur_event = self.store_event(
+            data={
+                'event_id': 'b' * 32,
+                'timestamp': self.two_min_ago,
+                'fingerprint': ['group-1'],
+            },
+            project_id=self.project.id
+        )
+        next_event = self.store_event(
+            data={
+                'event_id': 'c' * 32,
+                'timestamp': self.min_ago,
+                'fingerprint': ['group-1'],
+            },
+            project_id=self.project.id
+        )
+
+        group = Group.objects.first()
+
+        url = reverse(
+            'sentry-api-0-event-details', kwargs={
+                'event_id': cur_event.id,
+            }
+        )
+        response = self.client.get(url, format='json')
+
+        assert response.status_code == 200, response.content
+        assert response.data['id'] == six.text_type(cur_event.event_id)
+        assert response.data['nextEventID'] == six.text_type(next_event.event_id)
+        assert response.data['previousEventID'] == six.text_type(prev_event.event_id)
+        assert response.data['groupID'] == six.text_type(group.id)
+        assert 'userReport' not in response.data
+
+        url = reverse(
+            'sentry-api-0-event-details', kwargs={
+                'event_id': prev_event.id,
+            }
+        )
+        response = self.client.get(url, format='json')
+
+        assert response.status_code == 200, response.content
+        assert response.data['id'] == six.text_type(prev_event.event_id)
+        assert response.data['nextEventID'] == six.text_type(cur_event.event_id)
+        assert response.data['previousEventID'] is None
+        assert response.data['groupID'] == six.text_type(group.id)
+        assert 'userReport' not in response.data
+
+        url = reverse(
+            'sentry-api-0-event-details', kwargs={
+                'event_id': next_event.id,
+            }
+        )
+        response = self.client.get(url, format='json')
+
+        assert response.status_code == 200, response.content
+        assert response.data['id'] == six.text_type(next_event.event_id)
+        assert response.data['nextEventID'] is None
+        assert response.data['previousEventID'] == six.text_type(cur_event.event_id)
+        assert response.data['groupID'] == six.text_type(group.id)
+        assert 'userReport' not in response.data

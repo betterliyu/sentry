@@ -577,7 +577,7 @@ class SnubaEvent(EventCommon):
             [['timestamp', '<', self.timestamp], ['event_id', '<', self.event_id]]
         ]
 
-        if len(environments) > 0:
+        if environments:
             conditions.append(['environment', 'IN', environments])
 
         result = snuba.raw_query(
